@@ -1,4 +1,4 @@
-﻿namespace Shameless.Utils
+﻿namespace SeedRetriever
 {
 	using System;
 	using System.Collections.Generic;

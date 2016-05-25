@@ -45,6 +45,9 @@
   <ItemGroup>
     <Compile Include="BitConversion.cs" />
     <Compile Include="CDNUtils.cs" />
+    <Compile Include="CertificateWebClient.cs">
+      <SubType>Component</SubType>
+    </Compile>
     <Compile Include="SeedRetriever.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
   </ItemGroup>
