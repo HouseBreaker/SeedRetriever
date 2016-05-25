@@ -20,6 +20,9 @@
 		{
 			Console.OutputEncoding = Encoding.UTF8;
 
+			DownloadPackageImages();
+			Environment.Exit(0);
+
 			// var allTitles = File.ReadAllLines("titlesBig.txt");
 			var foundTitles = File.ReadAllLines("validTitles.txt");
 			var titlesChecked = Directory.GetFiles("metadata\\").Select(a => a.Substring(9, a.Length - 9).Split(' ')[0]);
@@ -68,6 +71,39 @@
 				using (var client = new CertificateWebClient(certificate))
 				{
 					File.WriteAllBytes($"icons\\{titleId} - {name}", client.DownloadData(url.Value));
+					Console.WriteLine($"Downloaded icon for {name}");
+				}
+			}
+		}
+
+		private static void DownloadPackageImages()
+		{
+			var titlesPaths = Directory.GetFiles("metadata");
+			var iconsPaths = Directory.GetFiles("packages");
+
+			foreach (var titlesPath in titlesPaths)
+			{
+				var doc = XDocument.Parse(File.ReadAllText(titlesPath));
+				var url = doc.Document.Descendants("title").First().Descendants().FirstOrDefault(a => a.Name == "package_url");
+
+				if (url == null)
+				{
+					continue;
+				}
+
+				var filename = new FileInfo(titlesPath).Name;
+				var titleId = filename.Split(' ')[0];
+
+				if (iconsPaths.Any(a => a.Contains(titleId)))
+				{
+					continue;
+				}
+
+				var name = filename.Split(new[] { " - " }, StringSplitOptions.None).Last().Trim().Replace(".xml", ".jpg");
+
+				using (var client = new CertificateWebClient(certificate))
+				{
+					File.WriteAllBytes($"packages\\{titleId} - {name}", client.DownloadData(url.Value));
 					Console.WriteLine($"Downloaded icon for {name}");
 				}
 			}
