@@ -3,11 +3,15 @@ using System.Linq;
 
 namespace Shameless.Utils
 {
+	using System.Diagnostics;
 	using System.IO;
 	using System.Net;
 	using System.Security.Cryptography.X509Certificates;
 	using System.Text;
 	using System.Xml.Linq;
+
+	using Newtonsoft.Json;
+	using Newtonsoft.Json.Linq;
 
 	using SeedRetriever;
 
@@ -57,7 +61,7 @@ namespace Shameless.Utils
 			return size;
 		}
 
-		public static void RetrieveSeed(string titleId)
+		public static byte[] RetrieveSeed(string titleId)
 		{
 			ServicePointManager.ServerCertificateValidationCallback = (sender, x509Certificate, chain, errors) => true;
 			const string country = "US";
@@ -69,70 +73,80 @@ namespace Shameless.Utils
 					const string CdnUrl = "https://kagiya-ctr.cdn.nintendo.net/title/0x{0}/ext_key?country={1}";
 					var seedAsBytes = client.DownloadData(string.Format(CdnUrl, titleId, country));
 
-					var seed = BitConversion.BytesToHex(seedAsBytes);
-					var titleSeedPair = $"{titleId} {seed}{Environment.NewLine}";
+					return seedAsBytes;
 
-					Console.Write(titleSeedPair);
+					// var seed = BitConversion.BytesToHex(seedAsBytes);
+					// var titleSeedPair = $"{titleId} {seed}{Environment.NewLine}";
 
-					var fileContents = File.ReadAllText("seeds.txt");
-					if (!fileContents.Contains(titleSeedPair))
-					{
-						File.AppendAllText("seeds.txt", titleSeedPair);
-					}
+					// Console.Write(titleSeedPair);
+
+					// var fileContents = File.ReadAllText("seeds.txt");
+					// if (!fileContents.Contains(titleSeedPair))
+					// {
+					// 	File.AppendAllText("seeds.txt", titleSeedPair);
+					// }
 				}
 				catch (WebException ex)
 				{
 					var response = (HttpWebResponse)ex.Response;
 					var statusCode = (int)response.StatusCode;
 
-					Console.WriteLine($"{titleId} {statusCode}");
+					// Console.WriteLine($"{titleId} {statusCode}");
 				}
+
+				return null;
 			}
 		}
 
-		public static void RetrieveTitleData(string titleId, X509Certificate2 certificate)
+		public static TitleData RetrieveTitleData(string[] internalInfo, string titleId, string country, X509Certificate2 certificate)
 		{
+			var titleData = new TitleData(titleId);
+
 			using (var client = new CertificateWebClient(certificate))
 			{
 				client.Encoding = Encoding.UTF8;
+
 				try
 				{
-					Console.Write(titleId + ": ");
-
-					var internalInfo = RetrieveInternalInfo(titleId, client);
-
-					if (internalInfo[0] == string.Empty)
+					// Console.Write(titleId + ": ");
+					// internalInfo = RetrieveInternalInfo(titleId, certificate);
+					if (internalInfo[0] == null || internalInfo[1] == null)
 					{
-						Console.WriteLine("No info");
-						return;
+						// Console.WriteLine("No info");
+						return titleData;
 					}
 
 					var internalId = internalInfo[0];
 					var type = internalInfo[1];
 
-					Console.Write($"{internalId} ({type}) - ");
+					titleData.InternalId = internalId;
+					titleData.Type = type;
 
-					var countries = new[] { "US", "JP", "HK", "TW", "KR", "DE", "GB", "FR", "ES", "NL", "IT" };
+					// Console.Write($"{internalId} ({type}) - ");
+					// var countries = new[] { "US", "JP", "HK", "TW", "KR", "GB", "DE", "FR", "ES", "NL", "IT" };
 
-					var metadataResponse = string.Empty;
-					foreach (var country in countries)
-					{
+					string metadataResponse = null;
+					//foreach (var country in countries)
+					//{
 						try
 						{
-							const string metadataUrl = "https://samurai.ctr.shop.nintendo.net/samurai/ws/";
-							metadataResponse = client.DownloadString(metadataUrl + country + "/title/" + internalId);
-							break;
+							client.Headers.Add("Accept", "application/json");
+							const string MetadataUrl = "https://samurai.ctr.shop.nintendo.net/samurai/ws/";
+							metadataResponse = client.DownloadString(MetadataUrl + country + "/title/" + internalId);
+
+							// metadataResponse = client.DownloadString(MetadataUrl + country + "/titles");
+							//break;
 						}
 						catch (WebException ex)
 						{
 							// continue
 						}
-					}
+					//}
 
-					if (metadataResponse == string.Empty)
+					if (metadataResponse == null)
 					{
-						Console.WriteLine("No info");
-						return;
+						// Console.WriteLine("No info");
+						return titleData;
 
 						// 	for (int i = 'A'; i <= 'Z'; i++)
 						// 	{
@@ -157,59 +171,112 @@ namespace Shameless.Utils
 						// 	}
 					}
 
-					var metadataXml = XDocument.Parse(metadataResponse);
+					var json = JObject.Parse(metadataResponse);
+					titleData.MetadataJson = json;
 
-					var name = metadataXml.Descendants().First(a => a.Name == "formal_name").Value.Replace("\n", " ");
-					Console.WriteLine(name);
+					var name = json["title"]["formal_name"].ToString().Replace("\n", " ");
+					titleData.Name = name;
 
-					var filename = SanitizeFilename($"{titleId} ({internalId}) - {name}.xml");
-					File.WriteAllText("metadata\\" + filename, metadataXml.ToString());
+					// Console.WriteLine(name);
+
+					// var filename = SanitizeFilename($"{titleId} ({internalId}) - {name}.xml");
+					// File.WriteAllText("metadata\\" + filename, metadataXml.ToString());
 				}
 				catch (WebException ex)
 				{
 					var response = (HttpWebResponse)ex.Response;
 					var statusCode = (int)response.StatusCode;
 
-					Console.WriteLine($"{titleId} {statusCode}");
+					// Console.WriteLine($"{titleId} {statusCode}");
 				}
 			}
+
+			return titleData;
 		}
 
-		public static string[] RetrieveInternalInfo(string titleId, CertificateWebClient client)
+		public static string[] RetrieveInternalInfo(string titleId, X509Certificate2 certificate)
 		{
 			// from PlaiCDN
-			var internalInfo = new[] { string.Empty, string.Empty };
+			var internalInfo = new string[] { null, null };
 
 			var url = $"https://ninja.ctr.shop.nintendo.net/ninja/ws/titles/id_pair?title_id[]={titleId}";
-			var response = client.DownloadString(url);
 
-			var xml = XDocument.Parse(response);
-
-			var xElements = xml.Descendants("title_id_pairs");
-			if (!xElements.First().HasElements)
+			using (var client = new CertificateWebClient(certificate))
 			{
-				// Console.WriteLine($"{titleId}: No info");
-				return internalInfo;
+				client.Headers.Add("Accept", "application/json");
+				var response = client.DownloadString(url);
+
+				// var xml = XDocument.Parse(response);
+				var json = JObject.Parse(response);
+
+				if (json["title_id_pairs"]["title_id_pair"] != null)
+				{
+					var internalId = json["title_id_pairs"]["title_id_pair"].First["ns_uid"].ToString();
+					var type = json["title_id_pairs"]["title_id_pair"].First["type"].ToString();
+
+					internalInfo[0] = internalId;
+					internalInfo[1] = type;
+				}
 			}
-
-			var nodes = xml.Descendants("title_id_pair").First().Descendants().DescendantsAndSelf();
-
-			if (!nodes.Any())
-			{
-				// Console.WriteLine($"{titleId}: No info");
-				return internalInfo;
-			}
-
-			var internalId = nodes.First(a => a.Name == "ns_uid").Value;
-			var type = nodes.First(a => a.Name == "type").Value;
-
-			internalInfo[0] = internalId;
-			internalInfo[1] = type;
 
 			return internalInfo;
 		}
 
-		private static string SanitizeFilename(string input)
+		private static void RetrieveTitles(string country, X509Certificate2 certificate)
+		{
+			using (var client = new CertificateWebClient(certificate))
+			{
+				client.Encoding = Encoding.UTF8;
+				client.Headers.Add("Accept", "application/json");
+
+				var stopwatch = new Stopwatch();
+				stopwatch.Start();
+
+				try
+				{
+					const string MetadataUrl = "https://samurai.ctr.shop.nintendo.net/samurai/ws/";
+
+					const int TitlesAtATime = 500;
+
+					var metadataResponse =
+						JObject.Parse(client.DownloadString(MetadataUrl + country + $"/contents?limit={TitlesAtATime}"));
+
+					var total = metadataResponse["contents"]["total"].Value<int>();
+					metadataResponse["contents"]["length"] = total;
+
+					for (int offset = TitlesAtATime; offset < total; offset += TitlesAtATime)
+					{
+						client.Headers.Add("Accept", "application/json");
+
+						var response = client.DownloadString(MetadataUrl + country + $"/contents?offset={offset}&limit={TitlesAtATime}");
+						var responseAsJObject = JObject.Parse(response);
+
+						var contents = metadataResponse["contents"]["content"].Concat(responseAsJObject["contents"]["content"]);
+						metadataResponse["contents"]["content"] = JToken.FromObject(contents);
+
+						Console.Write($"\r{country}: {metadataResponse["contents"]["content"].Count()}/{total}");
+					}
+
+					stopwatch.Stop();
+					var secondsTaken = (double)stopwatch.ElapsedMilliseconds / 1000;
+
+					Console.Write($"\r{country}: {metadataResponse["contents"]["total"].Value<int>()}/{total}".PadRight(15));
+					Console.WriteLine($" (Took {(int)secondsTaken / 60:D2}:{secondsTaken % 60:00.00})");
+
+					var indented = JsonConvert.SerializeObject(metadataResponse, Formatting.Indented);
+					File.WriteAllText("titles\\" + country + ".json", indented);
+				}
+				catch (WebException ex)
+				{
+					var response = (HttpWebResponse)ex.Response;
+					var statusCode = response.StatusCode;
+
+					Console.Write($"\r{country}: {(int)statusCode}");
+				}
+			}
+		}
+
+		public static string SanitizeFilename(string input)
 		{
 			var forbiddenChars = Path.GetInvalidFileNameChars().ToList();
 			forbiddenChars.AddRange(new[] { '\n', '™', '©', '®' });

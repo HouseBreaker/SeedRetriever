@@ -33,6 +33,9 @@
     <WarningLevel>4</WarningLevel>
   </PropertyGroup>
   <ItemGroup>
+    <Reference Include="Newtonsoft.Json">
+      <HintPath>lib\Newtonsoft.Json.dll</HintPath>
+    </Reference>
     <Reference Include="System" />
     <Reference Include="System.Core" />
     <Reference Include="System.Xml.Linq" />
@@ -50,6 +53,7 @@
     </Compile>
     <Compile Include="SeedRetriever.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
+    <Compile Include="TitleData.cs" />
   </ItemGroup>
   <ItemGroup>
     <None Include="App.config" />
